@@ -1,12 +1,9 @@
-# SPDX-FileCopyrightText: 2026 SAP SE or an SAP affiliate company and Greenhouse contributors
-# SPDX-License-Identifier: Apache-2.0
-
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.20.1
+    controller-gen.kubebuilder.io/version: v0.20.0
   name: plugins.greenhouse.sap
 spec:
   group: greenhouse.sap
@@ -124,8 +121,11 @@ spec:
                   description: PluginOptionValue is the value for a PluginOption.
                   properties:
                     expression:
-                      description: Expression is a YAML string with ${...} placeholders
-                        that will be evaluated as CEL expressions.
+                      description: |-
+                        Expression is a YAML string with ${...} placeholders that will be evaluated as CEL expressions.
+
+                        Deprecated: Expression is deprecated on standalone Plugins and will be removed in a future release.
+                        Consider using a PluginPreset to deploy Plugins utilizing the Expression field.
                       type: string
                     name:
                       description: Name of the values.
@@ -137,8 +137,11 @@ spec:
                       description: ValueFrom references value in another source.
                       properties:
                         ref:
-                          description: Ref references values defined in another resource
-                            (Plugin, PluginPreset)
+                          description: |-
+                            Ref references values defined in another resource (Plugin, PluginPreset)
+
+                            Deprecated: Ref is deprecated on standalone Plugins and will be removed in a future release.
+                            Consider using a PluginPreset to deploy Plugins utilizing the Ref field.
                           properties:
                             expression:
                               description: Expression is a CEL expression to extract
