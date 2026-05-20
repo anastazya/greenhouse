@@ -468,7 +468,7 @@ func computeReleaseValues(ctx context.Context, c client.Client, plugin *greenhou
 			// noop, direct values are already set
 			continue
 
-		case v.Expression != nil:
+		case v.Expression != nil: //nolint:staticcheck // SA1019: deprecated field kept for later clean up
 			if !expressionEvaluation {
 				// skip expression evaluation if not enabled
 				continue
@@ -479,7 +479,7 @@ func computeReleaseValues(ctx context.Context, c client.Client, plugin *greenhou
 			}
 			optionValues[i] = *resolvedOptionValue
 
-		case v.ValueFrom != nil && v.ValueFrom.Ref != nil:
+		case v.ValueFrom != nil && v.ValueFrom.Ref != nil: //nolint:staticcheck // SA1019: deprecated field kept for later clean up
 			// skip if integration flag is not enabled
 			if !integrationEnabled {
 				continue
