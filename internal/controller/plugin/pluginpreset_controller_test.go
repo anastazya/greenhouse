@@ -890,6 +890,244 @@ var _ = Describe("PluginPreset Controller Lifecycle", Ordered, func() {
 		By("removing plugin preset")
 		test.EventuallyDeleted(test.Ctx, test.K8sClient, pluginPreset)
 	})
+
+	It("should resolve a simple expression using clusterName", func() {
+		By("creating a PluginPreset with an expression")
+		expressionStr := `"app-${global.greenhouse.clusterName}.example.com"`
+		pluginSpec := greenhousev1alpha1.PluginSpec{
+			PluginDefinitionRef: greenhousev1alpha1.PluginDefinitionReference{
+				Kind: greenhousev1alpha1.ClusterPluginDefinitionKind,
+				Name: pluginPresetDefinitionName,
+			},
+			ReleaseName:      releaseName,
+			ReleaseNamespace: releaseNamespace,
+			OptionValues: []greenhousev1alpha1.PluginOptionValue{
+				{
+					Name:  "myRequiredOption",
+					Value: test.MustReturnJSONFor("myValue"),
+				},
+				{
+					Name:       "test.hostname",
+					Expression: &expressionStr,
+				},
+			},
+		}
+
+		pluginPreset := test.NewPluginPreset("expr-simple", test.TestNamespace,
+			test.WithPluginPresetLabel(greenhouseapis.LabelKeyOwnedBy, testTeam.Name),
+			test.WithPluginPresetPluginSpec(pluginSpec),
+			test.WithPluginPresetClusterSelector(metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"cluster": clusterA,
+				},
+			}))
+		Expect(test.K8sClient.Create(test.Ctx, pluginPreset)).To(Succeed())
+
+		By("ensuring Plugin has resolved expression value")
+		expPluginName := types.NamespacedName{Name: "expr-simple-" + clusterA, Namespace: test.TestNamespace}
+		expPlugin := &greenhousev1alpha1.Plugin{}
+		Eventually(func(g Gomega) {
+			err := test.K8sClient.Get(test.Ctx, expPluginName, expPlugin)
+			g.Expect(err).ToNot(HaveOccurred(), "Plugin should exist")
+
+			var hostnameFound bool
+			for _, ov := range expPlugin.Spec.OptionValues {
+				if ov.Name == "test.hostname" {
+					hostnameFound = true
+					g.Expect(ov.Expression).To(BeNil(), "Expression should be resolved") //nolint:staticcheck // SA1019: checking deprecated field in test
+					g.Expect(ov.Value).ToNot(BeNil(), "Value should be set")
+					g.Expect(string(ov.Value.Raw)).To(Equal(`"app-`+clusterA+`.example.com"`),
+						"Expression should resolve with cluster name")
+				}
+			}
+			g.Expect(hostnameFound).To(BeTrue(), "test.hostname should exist in Plugin")
+		}).Should(Succeed())
+
+		By("removing the PluginPreset")
+		test.EventuallyDeleted(test.Ctx, test.K8sClient, pluginPreset)
+	})
+
+	It("should resolve expression with cluster metadata", func() {
+		By("adding metadata labels to clusterA")
+		clusterAObj := &greenhousev1alpha1.Cluster{}
+		Expect(test.K8sClient.Get(test.Ctx, types.NamespacedName{
+			Name: clusterA, Namespace: test.TestNamespace,
+		}, clusterAObj)).To(Succeed())
+
+		_, err := clientutil.CreateOrPatch(test.Ctx, test.K8sClient, clusterAObj, func() error {
+			clusterAObj.Labels["metadata.greenhouse.sap/region"] = "eu-de-1"
+			return nil
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		By("creating a PluginPreset with metadata expression")
+		expressionStr := `"service.${global.greenhouse.metadata.region}.example.com"`
+		pluginSpec := greenhousev1alpha1.PluginSpec{
+			PluginDefinitionRef: greenhousev1alpha1.PluginDefinitionReference{
+				Kind: greenhousev1alpha1.ClusterPluginDefinitionKind,
+				Name: pluginPresetDefinitionName,
+			},
+			ReleaseName:      releaseName,
+			ReleaseNamespace: releaseNamespace,
+			OptionValues: []greenhousev1alpha1.PluginOptionValue{
+				{
+					Name:  "myRequiredOption",
+					Value: test.MustReturnJSONFor("myValue"),
+				},
+				{
+					Name:       "test.serviceHost",
+					Expression: &expressionStr,
+				},
+			},
+		}
+
+		pluginPreset := test.NewPluginPreset("expr-metadata", test.TestNamespace,
+			test.WithPluginPresetLabel(greenhouseapis.LabelKeyOwnedBy, testTeam.Name),
+			test.WithPluginPresetPluginSpec(pluginSpec),
+			test.WithPluginPresetClusterSelector(metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"cluster": clusterA,
+				},
+			}))
+		Expect(test.K8sClient.Create(test.Ctx, pluginPreset)).To(Succeed())
+
+		By("ensuring Plugin has resolved metadata expression")
+		expPluginName := types.NamespacedName{Name: "expr-metadata-" + clusterA, Namespace: test.TestNamespace}
+		expPlugin := &greenhousev1alpha1.Plugin{}
+		Eventually(func(g Gomega) {
+			err := test.K8sClient.Get(test.Ctx, expPluginName, expPlugin)
+			g.Expect(err).ToNot(HaveOccurred())
+
+			var found bool
+			for _, ov := range expPlugin.Spec.OptionValues {
+				if ov.Name == "test.serviceHost" {
+					found = true
+					g.Expect(ov.Expression).To(BeNil()) //nolint:staticcheck // SA1019
+					g.Expect(ov.Value).ToNot(BeNil())
+					g.Expect(string(ov.Value.Raw)).To(Equal(`"service.eu-de-1.example.com"`))
+				}
+			}
+			g.Expect(found).To(BeTrue())
+		}).Should(Succeed())
+
+		By("cleaning up metadata label")
+		Expect(test.K8sClient.Get(test.Ctx, types.NamespacedName{
+			Name: clusterA, Namespace: test.TestNamespace,
+		}, clusterAObj)).To(Succeed())
+		_, err = clientutil.CreateOrPatch(test.Ctx, test.K8sClient, clusterAObj, func() error {
+			delete(clusterAObj.Labels, "metadata.greenhouse.sap/region")
+			return nil
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		test.EventuallyDeleted(test.Ctx, test.K8sClient, pluginPreset)
+	})
+
+	It("should keep direct values unchanged when resolving expressions", func() {
+		expressionStr := `"generated-${global.greenhouse.clusterName}"`
+		pluginSpec := greenhousev1alpha1.PluginSpec{
+			PluginDefinitionRef: greenhousev1alpha1.PluginDefinitionReference{
+				Kind: greenhousev1alpha1.ClusterPluginDefinitionKind,
+				Name: pluginPresetDefinitionName,
+			},
+			ReleaseName:      releaseName,
+			ReleaseNamespace: releaseNamespace,
+			OptionValues: []greenhousev1alpha1.PluginOptionValue{
+				{
+					Name:  "myRequiredOption",
+					Value: test.MustReturnJSONFor("myValue"),
+				},
+				{
+					Name:  "direct.value",
+					Value: test.MustReturnJSONFor("unchanged"),
+				},
+				{
+					Name:       "expression.value",
+					Expression: &expressionStr,
+				},
+			},
+		}
+
+		pluginPreset := test.NewPluginPreset("expr-mixed", test.TestNamespace,
+			test.WithPluginPresetLabel(greenhouseapis.LabelKeyOwnedBy, testTeam.Name),
+			test.WithPluginPresetPluginSpec(pluginSpec),
+			test.WithPluginPresetClusterSelector(metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"cluster": clusterA,
+				},
+			}))
+		Expect(test.K8sClient.Create(test.Ctx, pluginPreset)).To(Succeed())
+
+		expPluginName := types.NamespacedName{Name: "expr-mixed-" + clusterA, Namespace: test.TestNamespace}
+		expPlugin := &greenhousev1alpha1.Plugin{}
+		Eventually(func(g Gomega) {
+			err := test.K8sClient.Get(test.Ctx, expPluginName, expPlugin)
+			g.Expect(err).ToNot(HaveOccurred())
+
+			g.Expect(expPlugin.Spec.OptionValues).To(ContainElement(
+				greenhousev1alpha1.PluginOptionValue{
+					Name:  "direct.value",
+					Value: test.MustReturnJSONFor("unchanged"),
+				}), "Direct value should be unchanged")
+
+			var exprResolved bool
+			for _, ov := range expPlugin.Spec.OptionValues {
+				if ov.Name == "expression.value" {
+					exprResolved = true
+					g.Expect(ov.Expression).To(BeNil()) //nolint:staticcheck // SA1019
+					g.Expect(ov.Value).ToNot(BeNil())
+					g.Expect(string(ov.Value.Raw)).To(Equal(`"generated-` + clusterA + `"`))
+				}
+			}
+			g.Expect(exprResolved).To(BeTrue())
+		}).Should(Succeed())
+
+		test.EventuallyDeleted(test.Ctx, test.K8sClient, pluginPreset)
+	})
+
+	It("should report error for invalid expression", func() {
+		invalidExpressionStr := `"service.${global.greenhouse.nonexistent.field}.example.com"`
+		pluginSpec := greenhousev1alpha1.PluginSpec{
+			PluginDefinitionRef: greenhousev1alpha1.PluginDefinitionReference{
+				Kind: greenhousev1alpha1.ClusterPluginDefinitionKind,
+				Name: pluginPresetDefinitionName,
+			},
+			ReleaseName:      releaseName,
+			ReleaseNamespace: releaseNamespace,
+			OptionValues: []greenhousev1alpha1.PluginOptionValue{
+				{
+					Name:  "myRequiredOption",
+					Value: test.MustReturnJSONFor("myValue"),
+				},
+				{
+					Name:       "test.invalid",
+					Expression: &invalidExpressionStr,
+				},
+			},
+		}
+
+		pluginPreset := test.NewPluginPreset("expr-invalid", test.TestNamespace,
+			test.WithPluginPresetLabel(greenhouseapis.LabelKeyOwnedBy, testTeam.Name),
+			test.WithPluginPresetPluginSpec(pluginSpec),
+			test.WithPluginPresetClusterSelector(metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"cluster": clusterA,
+				},
+			}))
+		Expect(test.K8sClient.Create(test.Ctx, pluginPreset)).To(Succeed())
+
+		Eventually(func(g Gomega) {
+			err := test.K8sClient.Get(test.Ctx, client.ObjectKeyFromObject(pluginPreset), pluginPreset)
+			g.Expect(err).ToNot(HaveOccurred())
+
+			pluginFailedCondition := pluginPreset.Status.GetConditionByType(greenhousev1alpha1.PluginFailedCondition)
+			g.Expect(pluginFailedCondition).ToNot(BeNil())
+			g.Expect(pluginFailedCondition.Status).To(Equal(metav1.ConditionTrue))
+			g.Expect(pluginFailedCondition.Message).To(ContainSubstring("failed to resolve"))
+		}).Should(Succeed())
+
+		test.EventuallyDeleted(test.Ctx, test.K8sClient, pluginPreset)
+	})
 })
 
 var _ = Describe("overridesPluginOptionValues", Ordered, func() {

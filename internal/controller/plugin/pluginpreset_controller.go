@@ -240,12 +240,19 @@ func (r *PluginPresetReconciler) reconcilePluginPreset(ctx context.Context, pres
 
 			releaseName := getReleaseName(plugin, preset)
 
+			// Apply overrides first, then resolve expressions
+			presetWithOverrides := applyOverridesToPreset(preset, cluster.GetName())
+
+			resolvedValues, err := r.resolvePluginOptionValuesForPreset(ctx, presetWithOverrides, &cluster)
+			if err != nil {
+				return fmt.Errorf("failed to resolve option values for plugin %s: %w", plugin.Name, err)
+			}
+
 			plugin.Spec = pluginSpecFromPluginPreset(preset, cluster.GetName())
+			plugin.Spec.OptionValues = resolvedValues
 			plugin.Spec.ReleaseName = releaseName
 			// transport plugin preset labels to plugin
 			plugin = (lifecycle.NewPropagator(preset, plugin).Apply()).(*greenhousev1alpha1.Plugin)
-			// overrides options based on preset definition
-			overridesPluginOptionValues(plugin, preset)
 			return nil
 		})
 		if err != nil {
