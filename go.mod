@@ -3,7 +3,7 @@ module github.com/cloudoperators/greenhouse
 go 1.26.0
 
 replace (
-	github.com/cloudoperators/greenhouse/api => ./api //nolint:gomoddirectives
+	github.com/cloudoperators/greenhouse/api => ./api
 
 	// DEX import matches version v2.45.1.
 	github.com/dexidp/dex => github.com/dexidp/dex v0.0.0-20260303133905-11d2eeb52b42
