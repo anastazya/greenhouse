@@ -341,30 +341,6 @@ func isPluginManagedByPreset(plugin *greenhousev1alpha1.Plugin, presetName strin
 	return plugin.Labels[greenhouseapis.LabelKeyPluginPreset] == presetName
 }
 
-func overridesPluginOptionValues(plugin *greenhousev1alpha1.Plugin, preset *greenhousev1alpha1.PluginPreset) {
-	index := slices.IndexFunc(preset.Spec.ClusterOptionOverrides, func(override greenhousev1alpha1.ClusterOptionOverride) bool {
-		return override.ClusterName == plugin.Spec.ClusterName
-	})
-
-	// when plugin is running on different cluster then defined in
-	if index == -1 {
-		return
-	}
-
-	// overrides value
-	for _, overrideValue := range preset.Spec.ClusterOptionOverrides[index].Overrides {
-		valueIndex := slices.IndexFunc(plugin.Spec.OptionValues, func(value greenhousev1alpha1.PluginOptionValue) bool {
-			return value.Name == overrideValue.Name
-		})
-
-		if valueIndex == -1 {
-			plugin.Spec.OptionValues = append(plugin.Spec.OptionValues, overrideValue)
-		} else {
-			plugin.Spec.OptionValues[valueIndex] = overrideValue
-		}
-	}
-}
-
 // generatePluginName generates a name for a plugin based on the used PluginPreset's name and the Cluster.
 func generatePluginName(p *greenhousev1alpha1.PluginPreset, cluster *greenhousev1alpha1.Cluster) string {
 	return buildPluginName(p.Name, cluster.GetName())
