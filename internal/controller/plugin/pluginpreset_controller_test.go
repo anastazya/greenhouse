@@ -1130,150 +1130,187 @@ var _ = Describe("PluginPreset Controller Lifecycle", Ordered, func() {
 	})
 })
 
-var _ = Describe("overridesPluginOptionValues", Ordered, func() {
-	DescribeTable("test cases", func(plugin *greenhousev1alpha1.Plugin, preset *greenhousev1alpha1.PluginPreset, expectedPlugin *greenhousev1alpha1.Plugin) {
-		overridesPluginOptionValues(plugin, preset)
-		Expect(plugin).To(BeEquivalentTo(expectedPlugin))
-	},
-		Entry("with no defined pluginPresetOverrides",
-			test.NewPlugin(test.Ctx, "", "", test.WithPluginOptionValue("option-1", test.MustReturnJSONFor(2)), test.WithPluginLabel(greenhouseapis.LabelKeyOwnedBy, testTeam.Name)),
+var _ = Describe("applyOverridesToPreset", func() {
+	DescribeTable("test cases",
+		func(preset *greenhousev1alpha1.PluginPreset, clusterName string, expectedOptionValues []greenhousev1alpha1.PluginOptionValue) {
+			result := applyOverridesToPreset(preset, clusterName)
+			Expect(result.Spec.Plugin.OptionValues).To(Equal(expectedOptionValues))
+		},
+
+		Entry("with no overrides defined",
 			&greenhousev1alpha1.PluginPreset{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{greenhouseapis.LabelKeyOwnedBy: testTeam.Name},
-				},
-				Spec: greenhousev1alpha1.PluginPresetSpec{},
-			},
-			test.NewPlugin(test.Ctx, "", "", test.WithPluginOptionValue("option-1", test.MustReturnJSONFor(2)), test.WithPluginLabel(greenhouseapis.LabelKeyOwnedBy, testTeam.Name)),
-		),
-		Entry("with defined pluginPresetOverrides but for another cluster",
-			test.NewPlugin(test.Ctx, "", clusterA, test.WithPluginLabel(greenhouseapis.LabelKeyOwnedBy, testTeam.Name),
-				test.WithCluster(clusterA), test.WithPluginOptionValue("option-1", test.MustReturnJSONFor(2))),
-			&greenhousev1alpha1.PluginPreset{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{greenhouseapis.LabelKeyOwnedBy: testTeam.Name},
-				},
 				Spec: greenhousev1alpha1.PluginPresetSpec{
+					Plugin: greenhousev1alpha1.PluginPresetPluginSpec{
+						OptionValues: []greenhousev1alpha1.PluginOptionValue{
+							{Name: "option-1", Value: test.MustReturnJSONFor("value-1")},
+						},
+					},
+				},
+			},
+			clusterA,
+			[]greenhousev1alpha1.PluginOptionValue{
+				{Name: "option-1", Value: test.MustReturnJSONFor("value-1")},
+			},
+		),
+
+		Entry("with overrides for a different cluster",
+			&greenhousev1alpha1.PluginPreset{
+				Spec: greenhousev1alpha1.PluginPresetSpec{
+					Plugin: greenhousev1alpha1.PluginPresetPluginSpec{
+						OptionValues: []greenhousev1alpha1.PluginOptionValue{
+							{Name: "option-1", Value: test.MustReturnJSONFor("value-1")},
+						},
+					},
 					ClusterOptionOverrides: []greenhousev1alpha1.ClusterOptionOverride{
 						{
 							ClusterName: clusterB,
 							Overrides: []greenhousev1alpha1.PluginOptionValue{
-								{
-									Name:  "option-1",
-									Value: test.MustReturnJSONFor(1),
-								},
+								{Name: "option-1", Value: test.MustReturnJSONFor("overridden")},
 							},
 						},
 					},
 				},
 			},
-			test.NewPlugin(test.Ctx, "", clusterA, test.WithPluginLabel(greenhouseapis.LabelKeyOwnedBy, testTeam.Name),
-				test.WithCluster(clusterA), test.WithPluginOptionValue("option-1", test.MustReturnJSONFor(2))),
+			clusterA,
+			[]greenhousev1alpha1.PluginOptionValue{
+				{Name: "option-1", Value: test.MustReturnJSONFor("value-1")},
+			},
 		),
-		Entry("with defined pluginPresetOverrides for the correct cluster",
-			test.NewPlugin(test.Ctx, "", clusterA, test.WithCluster(clusterA), test.WithPluginOptionValue("option-1", test.MustReturnJSONFor(2)), test.WithPluginLabel(greenhouseapis.LabelKeyOwnedBy, testTeam.Name)),
+
+		Entry("with overrides for matching cluster - replaces existing value",
 			&greenhousev1alpha1.PluginPreset{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{greenhouseapis.LabelKeyOwnedBy: testTeam.Name},
-				},
 				Spec: greenhousev1alpha1.PluginPresetSpec{
+					Plugin: greenhousev1alpha1.PluginPresetPluginSpec{
+						OptionValues: []greenhousev1alpha1.PluginOptionValue{
+							{Name: "option-1", Value: test.MustReturnJSONFor("original")},
+							{Name: "option-2", Value: test.MustReturnJSONFor("unchanged")},
+						},
+					},
 					ClusterOptionOverrides: []greenhousev1alpha1.ClusterOptionOverride{
 						{
 							ClusterName: clusterA,
 							Overrides: []greenhousev1alpha1.PluginOptionValue{
-								{
-									Name:  "option-1",
-									Value: test.MustReturnJSONFor(1),
-								},
+								{Name: "option-1", Value: test.MustReturnJSONFor("overridden")},
 							},
 						},
 					},
 				},
 			},
-			test.NewPlugin(test.Ctx, "", clusterA, test.WithCluster(clusterA), test.WithPluginOptionValue("option-1", test.MustReturnJSONFor(1)), test.WithPluginLabel(greenhouseapis.LabelKeyOwnedBy, testTeam.Name)),
+			clusterA,
+			[]greenhousev1alpha1.PluginOptionValue{
+				{Name: "option-1", Value: test.MustReturnJSONFor("overridden")},
+				{Name: "option-2", Value: test.MustReturnJSONFor("unchanged")},
+			},
 		),
-		Entry("with defined pluginPresetOverrides for the cluster and plugin with empty option values",
-			test.NewPlugin(test.Ctx, "", clusterA, test.WithCluster(clusterA), test.WithPluginLabel(greenhouseapis.LabelKeyOwnedBy, testTeam.Name)),
+
+		Entry("with overrides for matching cluster - appends new value",
 			&greenhousev1alpha1.PluginPreset{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{greenhouseapis.LabelKeyOwnedBy: testTeam.Name},
-				},
 				Spec: greenhousev1alpha1.PluginPresetSpec{
+					Plugin: greenhousev1alpha1.PluginPresetPluginSpec{
+						OptionValues: []greenhousev1alpha1.PluginOptionValue{
+							{Name: "option-1", Value: test.MustReturnJSONFor("value-1")},
+						},
+					},
 					ClusterOptionOverrides: []greenhousev1alpha1.ClusterOptionOverride{
 						{
 							ClusterName: clusterA,
 							Overrides: []greenhousev1alpha1.PluginOptionValue{
-								{
-									Name:  "option-1",
-									Value: test.MustReturnJSONFor(1),
-								},
+								{Name: "option-new", Value: test.MustReturnJSONFor("new-value")},
 							},
 						},
 					},
 				},
 			},
-			test.NewPlugin(test.Ctx, "", clusterA, test.WithCluster(clusterA), test.WithPluginOptionValue("option-1", test.MustReturnJSONFor(1)), test.WithPluginLabel(greenhouseapis.LabelKeyOwnedBy, testTeam.Name)),
+			clusterA,
+			[]greenhousev1alpha1.PluginOptionValue{
+				{Name: "option-1", Value: test.MustReturnJSONFor("value-1")},
+				{Name: "option-new", Value: test.MustReturnJSONFor("new-value")},
+			},
 		),
-		Entry("with defined pluginPresetOverrides and plugin has two options",
-			test.NewPlugin(test.Ctx, "", clusterA, test.WithCluster(clusterA), test.WithPluginOptionValue("option-1", test.MustReturnJSONFor(1)), test.WithPluginOptionValue("option-2", test.MustReturnJSONFor(1)), test.WithPluginLabel(greenhouseapis.LabelKeyOwnedBy, testTeam.Name)),
+
+		Entry("with multiple overrides - replaces and appends",
 			&greenhousev1alpha1.PluginPreset{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{greenhouseapis.LabelKeyOwnedBy: testTeam.Name},
-				},
 				Spec: greenhousev1alpha1.PluginPresetSpec{
+					Plugin: greenhousev1alpha1.PluginPresetPluginSpec{
+						OptionValues: []greenhousev1alpha1.PluginOptionValue{
+							{Name: "option-1", Value: test.MustReturnJSONFor(1)},
+							{Name: "option-2", Value: test.MustReturnJSONFor(2)},
+							{Name: "option-3", Value: test.MustReturnJSONFor(3)},
+						},
+					},
 					ClusterOptionOverrides: []greenhousev1alpha1.ClusterOptionOverride{
 						{
 							ClusterName: clusterA,
 							Overrides: []greenhousev1alpha1.PluginOptionValue{
-								{
-									Name:  "option-2",
-									Value: test.MustReturnJSONFor(2),
-								},
+								{Name: "option-2", Value: test.MustReturnJSONFor(22)},
+								{Name: "option-3", Value: test.MustReturnJSONFor(33)},
+								{Name: "option-4", Value: test.MustReturnJSONFor(44)},
 							},
 						},
 					},
 				},
 			},
-			test.NewPlugin(test.Ctx, "", clusterA, test.WithCluster(clusterA), test.WithPluginOptionValue("option-1", test.MustReturnJSONFor(1)), test.WithPluginOptionValue("option-2", test.MustReturnJSONFor(2)), test.WithPluginLabel(greenhouseapis.LabelKeyOwnedBy, testTeam.Name)),
+			clusterA,
+			[]greenhousev1alpha1.PluginOptionValue{
+				{Name: "option-1", Value: test.MustReturnJSONFor(1)},
+				{Name: "option-2", Value: test.MustReturnJSONFor(22)},
+				{Name: "option-3", Value: test.MustReturnJSONFor(33)},
+				{Name: "option-4", Value: test.MustReturnJSONFor(44)},
+			},
 		),
-		Entry("with defined pluginPresetOverrides has multiple options to override",
-			test.NewPlugin(test.Ctx, "", clusterA, test.WithCluster(clusterA),
-				test.WithPluginOptionValue("option-1", test.MustReturnJSONFor(1)),
-				test.WithPluginOptionValue("option-2", test.MustReturnJSONFor(1)),
-				test.WithPluginOptionValue("option-3", test.MustReturnJSONFor(1)),
-				test.WithPluginLabel(greenhouseapis.LabelKeyOwnedBy, testTeam.Name)),
+
+		Entry("with empty option values and overrides adds values",
 			&greenhousev1alpha1.PluginPreset{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{greenhouseapis.LabelKeyOwnedBy: testTeam.Name},
-				},
 				Spec: greenhousev1alpha1.PluginPresetSpec{
+					Plugin: greenhousev1alpha1.PluginPresetPluginSpec{
+						OptionValues: []greenhousev1alpha1.PluginOptionValue{},
+					},
 					ClusterOptionOverrides: []greenhousev1alpha1.ClusterOptionOverride{
 						{
 							ClusterName: clusterA,
 							Overrides: []greenhousev1alpha1.PluginOptionValue{
-								{
-									Name:  "option-2",
-									Value: test.MustReturnJSONFor(2),
-								},
-								{
-									Name:  "option-3",
-									Value: test.MustReturnJSONFor(2),
-								},
-								{
-									Name:  "option-4",
-									Value: test.MustReturnJSONFor(2),
-								},
+								{Name: "option-1", Value: test.MustReturnJSONFor("added")},
 							},
 						},
 					},
 				},
 			},
-			test.NewPlugin(test.Ctx, "", clusterA, test.WithCluster(clusterA), test.WithPluginLabel(greenhouseapis.LabelKeyOwnedBy, testTeam.Name),
-				test.WithPluginOptionValue("option-1", test.MustReturnJSONFor(1)),
-				test.WithPluginOptionValue("option-2", test.MustReturnJSONFor(2)),
-				test.WithPluginOptionValue("option-3", test.MustReturnJSONFor(2)),
-				test.WithPluginOptionValue("option-4", test.MustReturnJSONFor(2))),
+			clusterA,
+			[]greenhousev1alpha1.PluginOptionValue{
+				{Name: "option-1", Value: test.MustReturnJSONFor("added")},
+			},
 		),
 	)
+
+	It("should not mutate the original preset", func() {
+		originalValue := test.MustReturnJSONFor("original")
+		preset := &greenhousev1alpha1.PluginPreset{
+			Spec: greenhousev1alpha1.PluginPresetSpec{
+				Plugin: greenhousev1alpha1.PluginPresetPluginSpec{
+					OptionValues: []greenhousev1alpha1.PluginOptionValue{
+						{Name: "option-1", Value: originalValue},
+					},
+				},
+				ClusterOptionOverrides: []greenhousev1alpha1.ClusterOptionOverride{
+					{
+						ClusterName: clusterA,
+						Overrides: []greenhousev1alpha1.PluginOptionValue{
+							{Name: "option-1", Value: test.MustReturnJSONFor("overridden")},
+						},
+					},
+				},
+			},
+		}
+
+		result := applyOverridesToPreset(preset, clusterA)
+
+		// Result should have overridden value
+		Expect(result.Spec.Plugin.OptionValues[0].Value).To(Equal(test.MustReturnJSONFor("overridden")))
+
+		// Original preset should NOT be mutated
+		Expect(preset.Spec.Plugin.OptionValues[0].Value).To(Equal(originalValue),
+			"original preset should not be mutated by applyOverridesToPreset")
+	})
 })
 
 var _ = Describe("getReleaseName", func() {
