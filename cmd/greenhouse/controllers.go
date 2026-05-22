@@ -94,7 +94,6 @@ func startPluginReconciler(name string, mgr ctrl.Manager) error {
 func startPluginPresetReconciler(name string, mgr ctrl.Manager) error {
 	return (&plugincontrollers.PluginPresetReconciler{
 		ExpressionEvaluationEnabled: featureFlags.IsPresetExpressionEvaluationEnabled(),
-		IntegrationEnabled:          featureFlags.IsPresetIntegrationEnabled(),
 	}).SetupWithManager(name, mgr)
 }
 

@@ -331,10 +331,8 @@ func Test_PluginPresetFeatures(t *testing.T) {
 				assert.Nil(t, featuresInstance, "Expected nil when ConfigMap is missing")
 
 				presetExpressionValue := featuresInstance.IsPresetExpressionEvaluationEnabled()
-				presetIntegrationValue := featuresInstance.IsPresetIntegrationEnabled()
 
 				assert.Equal(t, tc.expectedExpressionEvaluation, presetExpressionValue)
-				assert.Equal(t, tc.expectedIntegrationEnabled, presetIntegrationValue)
 
 				mockK8sClient.AssertExpectations(t)
 				return
@@ -343,11 +341,9 @@ func Test_PluginPresetFeatures(t *testing.T) {
 			assert.NoError(t, err)
 
 			presetExpressionValue := featuresInstance.IsPresetExpressionEvaluationEnabled()
-			presetIntegrationValue := featuresInstance.IsPresetIntegrationEnabled()
 
 			// Assert expected values
 			assert.Equal(t, tc.expectedExpressionEvaluation, presetExpressionValue)
-			assert.Equal(t, tc.expectedIntegrationEnabled, presetIntegrationValue)
 
 			// Verify plugin flags are NOT affected by pluginPreset flags
 			pluginExpressionValue := featuresInstance.IsExpressionEvaluationEnabled()
@@ -388,7 +384,6 @@ func Test_PluginAndPluginPresetFeaturesIndependent(t *testing.T) {
 
 	// PluginPreset flags should be true
 	assert.Equal(t, true, featuresInstance.IsPresetExpressionEvaluationEnabled(), "preset expression should be enabled")
-	assert.Equal(t, true, featuresInstance.IsPresetIntegrationEnabled(), "preset integration should be enabled")
 
 	mockK8sClient.AssertExpectations(t)
 }
