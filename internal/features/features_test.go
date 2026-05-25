@@ -249,56 +249,32 @@ func Test_PluginPresetFeatures(t *testing.T) {
 		configMapData                map[string]string
 		getError                     error
 		expectedExpressionEvaluation bool
-		expectedIntegrationEnabled   bool
 	}
 	testCases := []testCase{
 		{
 			name:                         "it should return true when pluginPreset expression evaluation is enabled",
 			configMapData:                map[string]string{PluginPresetFeatureKey: "expressionEvaluationEnabled: true\n"},
 			expectedExpressionEvaluation: true,
-			expectedIntegrationEnabled:   false,
 		},
 		{
 			name:                         "it should return false when pluginPreset expression evaluation is disabled",
 			configMapData:                map[string]string{PluginPresetFeatureKey: "expressionEvaluationEnabled: false\n"},
 			expectedExpressionEvaluation: false,
-			expectedIntegrationEnabled:   false,
-		},
-		{
-			name:                         "it should return true when pluginPreset integration is enabled",
-			configMapData:                map[string]string{PluginPresetFeatureKey: "integrationEnabled: true\n"},
-			expectedExpressionEvaluation: false,
-			expectedIntegrationEnabled:   true,
-		},
-		{
-			name:                         "it should return both values when both are set",
-			configMapData:                map[string]string{PluginPresetFeatureKey: "expressionEvaluationEnabled: true\nintegrationEnabled: true\n"},
-			expectedExpressionEvaluation: true,
-			expectedIntegrationEnabled:   true,
 		},
 		{
 			name:                         "it should return false when pluginPreset key is not found in feature-flags cm",
 			configMapData:                map[string]string{"someOtherKey": "value\n"},
 			expectedExpressionEvaluation: false,
-			expectedIntegrationEnabled:   false,
 		},
 		{
 			name:                         "it should return false when feature-flags cm is not found",
 			getError:                     apierrors.NewNotFound(schema.GroupResource{}, "configmap not found"),
 			expectedExpressionEvaluation: false,
-			expectedIntegrationEnabled:   false,
 		},
 		{
 			name:                         "it should return false when flag is malformed in feature-flags cm",
 			configMapData:                map[string]string{PluginPresetFeatureKey: "expressionEvaluationEnabled:: invalid_yaml"},
 			expectedExpressionEvaluation: false,
-			expectedIntegrationEnabled:   false,
-		},
-		{
-			name:                         "it should not affect plugin flags when pluginPreset flags are set",
-			configMapData:                map[string]string{PluginPresetFeatureKey: "expressionEvaluationEnabled: true\nintegrationEnabled: true\n"},
-			expectedExpressionEvaluation: true,
-			expectedIntegrationEnabled:   true,
 		},
 	}
 	for _, tc := range testCases {
