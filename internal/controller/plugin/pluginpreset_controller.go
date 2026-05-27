@@ -46,6 +46,7 @@ type PluginPresetReconciler struct {
 	client.Client
 	recorder                    events.EventRecorder
 	ExpressionEvaluationEnabled bool
+	IntegrationEnabled          bool
 }
 
 //+kubebuilder:rbac:groups=greenhouse.sap,resources=pluginpresets,verbs=get;list;watch;update

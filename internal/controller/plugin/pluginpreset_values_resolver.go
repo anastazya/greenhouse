@@ -6,12 +6,18 @@ package plugin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	celgo "github.com/google/cel-go/cel"
 
 	greenhousev1alpha1 "github.com/cloudoperators/greenhouse/api/v1alpha1"
 	"github.com/cloudoperators/greenhouse/internal/helm"
@@ -33,6 +39,14 @@ func (r *PluginPresetReconciler) resolvePluginOptionValuesForPreset(
 		optionValues, err = r.resolveExpressionsForPreset(ctx, preset, cluster)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve expressions: %w", err)
+		}
+	}
+
+	if r.IntegrationEnabled {
+		var err error
+		optionValues, err = r.resolveReferencesForPreset(ctx, cluster, preset.Namespace, optionValues)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve references: %w", err)
 		}
 	}
 
@@ -79,6 +93,278 @@ func (r *PluginPresetReconciler) resolveExpressionsForPreset(
 	}
 
 	return result, nil
+}
+
+// resolveReferencesForPreset resolves all valueFrom.ref fields in option values.
+func (r *PluginPresetReconciler) resolveReferencesForPreset(
+	ctx context.Context,
+	cluster *greenhousev1alpha1.Cluster,
+	namespace string,
+	optionValues []greenhousev1alpha1.PluginOptionValue,
+) ([]greenhousev1alpha1.PluginOptionValue, error) {
+
+	hasRefs := false
+	for _, ov := range optionValues {
+		if ov.ValueFrom != nil && ov.ValueFrom.Ref != nil { //nolint:staticcheck // SA1019: deprecated field kept for later clean up
+			hasRefs = true
+			break
+		}
+	}
+	if !hasRefs {
+		return optionValues, nil
+	}
+
+	log := ctrl.LoggerFrom(ctx)
+	result := make([]greenhousev1alpha1.PluginOptionValue, 0, len(optionValues))
+
+	for _, optionValue := range optionValues {
+		if optionValue.ValueFrom != nil && optionValue.ValueFrom.Ref != nil { //nolint:staticcheck // SA1019: deprecated field kept for later clean up
+			log.Info("Resolving valueFrom.ref",
+				"option", optionValue.Name,
+				"refKind", optionValue.ValueFrom.Ref.Kind, //nolint:staticcheck // SA1019: deprecated field kept for later clean up
+				"refName", optionValue.ValueFrom.Ref.Name) //nolint:staticcheck // SA1019: deprecated field kept for later clean up
+
+			resolvedValue, err := r.resolveRef(ctx, optionValue.ValueFrom.Ref, cluster, namespace) //nolint:staticcheck // SA1019: deprecated field kept for later clean up
+			if err != nil {
+				return nil, fmt.Errorf("failed to resolve reference for %s: %w", optionValue.Name, err)
+			}
+
+			byteVal, err := json.Marshal(resolvedValue)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal resolved value for %s: %w", optionValue.Name, err)
+			}
+
+			result = append(result, greenhousev1alpha1.PluginOptionValue{
+				Name:  optionValue.Name,
+				Value: &apiextensionsv1.JSON{Raw: byteVal},
+			})
+		} else {
+			result = append(result, optionValue)
+		}
+	}
+
+	return result, nil
+}
+
+// resolveRef resolves a reference to another resource (PluginPreset or Plugin).
+func (r *PluginPresetReconciler) resolveRef(
+	ctx context.Context,
+	ref *greenhousev1alpha1.ExternalValueSource,
+	cluster *greenhousev1alpha1.Cluster,
+	namespace string,
+) (any, error) {
+
+	refKind := ref.Kind
+	if refKind == "" {
+		refKind = greenhousev1alpha1.PluginPresetKind
+	}
+
+	switch refKind {
+	case greenhousev1alpha1.PluginPresetKind:
+		return r.resolvePluginPresetRef(ctx, ref, cluster, namespace)
+	default:
+		return nil, fmt.Errorf("unsupported reference kind: %s", refKind)
+	}
+}
+
+// resolvePluginPresetRef resolves a reference to PluginPreset(s).
+func (r *PluginPresetReconciler) resolvePluginPresetRef(
+	ctx context.Context,
+	ref *greenhousev1alpha1.ExternalValueSource,
+	cluster *greenhousev1alpha1.Cluster,
+	namespace string,
+) (any, error) {
+
+	switch {
+	case ref.Name != "":
+		return r.resolvePluginPresetRefByName(ctx, ref, cluster, namespace)
+	case ref.Selector != nil:
+		return r.resolvePluginPresetRefBySelector(ctx, ref, cluster, namespace)
+	default:
+		return nil, errors.New("either name or selector must be set in valueFrom.ref for PluginPreset")
+	}
+}
+
+// resolvePluginPresetRefByName resolves a reference to a single PluginPreset by name.
+func (r *PluginPresetReconciler) resolvePluginPresetRefByName(
+	ctx context.Context,
+	ref *greenhousev1alpha1.ExternalValueSource,
+	cluster *greenhousev1alpha1.Cluster,
+	namespace string,
+) (any, error) {
+
+	log := ctrl.LoggerFrom(ctx)
+
+	refPreset := &greenhousev1alpha1.PluginPreset{}
+	if err := r.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: namespace}, refPreset); err != nil {
+		return nil, fmt.Errorf("failed to get PluginPreset %s: %w", ref.Name, err)
+	}
+
+	log.Info("Resolving reference to PluginPreset by name",
+		"name", ref.Name,
+		"expression", ref.Expression)
+
+	resolvedRefValues := r.resolveReferencedPresetValues(ctx, refPreset, cluster)
+	celObject := buildCELObject(refPreset.Name, refPreset.Namespace, resolvedRefValues)
+
+	value, err := evaluateCELWithObject(ref.Expression, celObject)
+	if err != nil {
+		return nil, fmt.Errorf("failed to evaluate reference expression: %w", err)
+	}
+
+	return value, nil
+}
+
+// resolvePluginPresetRefBySelector resolves references to multiple PluginPresets by label selector.
+func (r *PluginPresetReconciler) resolvePluginPresetRefBySelector(
+	ctx context.Context,
+	ref *greenhousev1alpha1.ExternalValueSource,
+	cluster *greenhousev1alpha1.Cluster,
+	namespace string,
+) (any, error) {
+
+	log := ctrl.LoggerFrom(ctx)
+
+	selector, err := metav1.LabelSelectorAsSelector(ref.Selector)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse label selector: %w", err)
+	}
+
+	presetList := &greenhousev1alpha1.PluginPresetList{}
+	if err := r.List(ctx, presetList,
+		client.InNamespace(namespace),
+		client.MatchingLabelsSelector{Selector: selector},
+	); err != nil {
+		return nil, fmt.Errorf("failed to list PluginPresets by selector: %w", err)
+	}
+
+	if len(presetList.Items) == 0 {
+		log.Info("No PluginPresets found matching selector", "selector", ref.Selector)
+		return []any{}, nil
+	}
+
+	log.Info("Resolving reference to PluginPresets by selector",
+		"selector", ref.Selector,
+		"matchCount", len(presetList.Items),
+		"expression", ref.Expression)
+
+	results := make([]any, 0, len(presetList.Items))
+	for i := range presetList.Items {
+		refPreset := &presetList.Items[i]
+		resolvedRefValues := r.resolveReferencedPresetValues(ctx, refPreset, cluster)
+		celObject := buildCELObject(refPreset.Name, refPreset.Namespace, resolvedRefValues)
+
+		value, err := evaluateCELWithObject(ref.Expression, celObject)
+		if err != nil {
+			return nil, fmt.Errorf("failed to evaluate reference expression for PluginPreset %s: %w", refPreset.Name, err)
+		}
+		results = appendToResults(results, value)
+	}
+
+	return results, nil
+}
+
+// resolveReferencedPresetValues resolves expressions in a referenced PluginPreset
+// if the ExpressionEvaluationEnabled flag is set.
+func (r *PluginPresetReconciler) resolveReferencedPresetValues(
+	ctx context.Context,
+	refPreset *greenhousev1alpha1.PluginPreset,
+	cluster *greenhousev1alpha1.Cluster,
+) []greenhousev1alpha1.PluginOptionValue {
+
+	if !r.ExpressionEvaluationEnabled {
+		return refPreset.Spec.Plugin.OptionValues
+	}
+
+	resolvedRefValues, err := r.resolveExpressionsForPreset(ctx, refPreset, cluster)
+	if err != nil {
+		log := ctrl.LoggerFrom(ctx)
+		log.Error(err, "Failed to resolve expressions in referenced PluginPreset, using raw values",
+			"name", refPreset.Name)
+		return refPreset.Spec.Plugin.OptionValues
+	}
+
+	return resolvedRefValues
+}
+
+// buildCELObject creates a CEL-friendly object structure from option values.
+func buildCELObject(name, namespace string, optionValues []greenhousev1alpha1.PluginOptionValue) map[string]any {
+	celOptionValues := make([]map[string]any, 0, len(optionValues))
+	for _, ov := range optionValues {
+		item := map[string]any{
+			"name": ov.Name,
+		}
+		if ov.Value != nil && len(ov.Value.Raw) > 0 {
+			var val any
+			if err := json.Unmarshal(ov.Value.Raw, &val); err == nil {
+				item["value"] = val
+			}
+		}
+		celOptionValues = append(celOptionValues, item)
+	}
+
+	return map[string]any{
+		"metadata": map[string]any{
+			"name":      name,
+			"namespace": namespace,
+		},
+		"spec": map[string]any{
+			"optionValues": celOptionValues,
+		},
+	}
+}
+
+// appendToResults appends a value to results, flattening slices to avoid nested arrays.
+func appendToResults(results []any, value any) []any {
+	switch v := value.(type) {
+	case []any:
+		results = append(results, v...)
+	default:
+		results = append(results, value)
+	}
+	return results
+}
+
+// evaluateCELWithObject evaluates a CEL expression against an object map.
+// Supports multiple syntax styles:
+//   - object.spec.optionValues.filter(...)  (legacy)
+//   - spec.optionValues.filter(...)         (new)
+//   - ${spec.optionValues.filter(...)}      (new with wrapper)
+func evaluateCELWithObject(expression string, object map[string]any) (any, error) {
+	expr := strings.TrimSpace(expression)
+	if strings.HasPrefix(expr, "${") && strings.HasSuffix(expr, "}") {
+		expr = expr[2 : len(expr)-1]
+	}
+
+	env, err := celgo.NewEnv(
+		celgo.Variable("object", celgo.DynType),
+		celgo.Variable("spec", celgo.DynType),
+		celgo.Variable("metadata", celgo.DynType),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create CEL environment: %w", err)
+	}
+
+	ast, issues := env.Compile(expr)
+	if issues != nil && issues.Err() != nil {
+		return nil, fmt.Errorf("failed to compile expression: %w", issues.Err())
+	}
+
+	prg, err := env.Program(ast)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create CEL program: %w", err)
+	}
+
+	out, _, err := prg.Eval(map[string]any{
+		"object":   object,
+		"spec":     object["spec"],
+		"metadata": object["metadata"],
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to evaluate expression: %w", err)
+	}
+
+	return out.Value(), nil
 }
 
 // buildTemplateData creates the template data map for CEL expression evaluation.
