@@ -131,7 +131,7 @@ func (f *Features) IsPresetExpressionEvaluationEnabled() bool {
 
 // IsPresetIntegrationEnabled returns whether ValueFrom.Ref resolution
 // is enabled in the PluginPreset controller.
-// Returns true as default.
+// Returns false as default.
 func (f *Features) IsPresetIntegrationEnabled() bool {
 	if f == nil {
 		return false
