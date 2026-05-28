@@ -19,10 +19,6 @@ import (
 	"github.com/cloudoperators/greenhouse/internal/test"
 )
 
-const (
-	selectorTestLabel = "e2e.greenhouse.sap/selector-ref-test"
-)
-
 func PluginPresetSelectorReference(ctx context.Context, adminClient, remoteClient client.Client, env *shared.TestEnv, remoteClusterName, teamName string) {
 	By("creating plugin definition")
 	testPluginDefinition := fixtures.PreparePodInfoClusterPluginDefinition(env.TestNamespace, "6.9.0")
@@ -58,11 +54,11 @@ func PluginPresetSelectorReference(ctx context.Context, adminClient, remoteClien
 		ReleaseNamespace: env.TestNamespace,
 		OptionValues: []greenhousev1alpha1.PluginOptionValue{
 			{
-				Name:  "replicaCount",
+				Name:  optionReplicaCount,
 				Value: test.MustReturnJSONFor("1"),
 			},
 			{
-				Name:       "ui.message",
+				Name:       optionUIMessage,
 				Expression: &sourceAExpressionStr,
 			},
 		},
@@ -90,11 +86,11 @@ func PluginPresetSelectorReference(ctx context.Context, adminClient, remoteClien
 		ReleaseNamespace: env.TestNamespace,
 		OptionValues: []greenhousev1alpha1.PluginOptionValue{
 			{
-				Name:  "replicaCount",
+				Name:  optionReplicaCount,
 				Value: test.MustReturnJSONFor("1"),
 			},
 			{
-				Name:       "ui.message",
+				Name:       optionUIMessage,
 				Expression: &sourceBExpressionStr,
 			},
 		},
@@ -132,11 +128,11 @@ func PluginPresetSelectorReference(ctx context.Context, adminClient, remoteClien
 		ReleaseNamespace: env.TestNamespace,
 		OptionValues: []greenhousev1alpha1.PluginOptionValue{
 			{
-				Name:  "replicaCount",
+				Name:  optionReplicaCount,
 				Value: test.MustReturnJSONFor("1"),
 			},
 			{
-				Name: "ui.message",
+				Name: optionUIMessage,
 				ValueFrom: &greenhousev1alpha1.PluginValueFromSource{
 					Ref: &greenhousev1alpha1.ExternalValueSource{
 						Kind: greenhousev1alpha1.PluginPresetKind,
@@ -175,7 +171,7 @@ func PluginPresetSelectorReference(ctx context.Context, adminClient, remoteClien
 
 		var found bool
 		for _, ov := range consumerPlugin.Spec.OptionValues {
-			if ov.Name == "ui.message" {
+			if ov.Name == optionUIMessage {
 				found = true
 				g.Expect(ov.ValueFrom).To(BeNil(), "ValueFrom should be resolved")
 				g.Expect(ov.Value).ToNot(BeNil())

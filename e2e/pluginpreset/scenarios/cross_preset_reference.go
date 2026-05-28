@@ -53,11 +53,11 @@ func PluginPresetCrossPresetReference(ctx context.Context, adminClient, remoteCl
 		ReleaseNamespace: env.TestNamespace,
 		OptionValues: []greenhousev1alpha1.PluginOptionValue{
 			{
-				Name:  "replicaCount",
+				Name:  optionReplicaCount,
 				Value: test.MustReturnJSONFor("1"),
 			},
 			{
-				Name:       "ui.message",
+				Name:       optionUIMessage,
 				Expression: &sourceExpressionStr,
 			},
 		},
@@ -92,11 +92,11 @@ func PluginPresetCrossPresetReference(ctx context.Context, adminClient, remoteCl
 		ReleaseNamespace: env.TestNamespace,
 		OptionValues: []greenhousev1alpha1.PluginOptionValue{
 			{
-				Name:  "replicaCount",
+				Name:  optionReplicaCount,
 				Value: test.MustReturnJSONFor("1"),
 			},
 			{
-				Name: "ui.message",
+				Name: optionUIMessage,
 				ValueFrom: &greenhousev1alpha1.PluginValueFromSource{
 					Ref: &greenhousev1alpha1.ExternalValueSource{
 						Kind:       greenhousev1alpha1.PluginPresetKind,
@@ -131,7 +131,7 @@ func PluginPresetCrossPresetReference(ctx context.Context, adminClient, remoteCl
 
 		var found bool
 		for _, ov := range consumerPlugin.Spec.OptionValues {
-			if ov.Name == "ui.message" {
+			if ov.Name == optionUIMessage {
 				found = true
 				g.Expect(ov.ValueFrom).To(BeNil(), "ValueFrom should be resolved")
 				g.Expect(ov.Expression).To(BeNil(), "Expression should not exist") //nolint:staticcheck // SA1019

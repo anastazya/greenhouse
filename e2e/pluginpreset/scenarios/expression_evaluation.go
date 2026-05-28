@@ -55,15 +55,15 @@ func PluginPresetExpressionEvaluation(ctx context.Context, adminClient, remoteCl
 		ReleaseNamespace: env.TestNamespace,
 		OptionValues: []greenhousev1alpha1.PluginOptionValue{
 			{
-				Name:  "replicaCount",
+				Name:  optionReplicaCount,
 				Value: test.MustReturnJSONFor("1"),
 			},
 			{
-				Name:       "ui.message",
+				Name:       optionUIMessage,
 				Expression: &expressionHostname,
 			},
 			{
-				Name:       "ui.backend",
+				Name:       optionUIBackend,
 				Expression: &expressionOrg,
 			},
 		},
@@ -98,7 +98,7 @@ func PluginPresetExpressionEvaluation(ctx context.Context, adminClient, remoteCl
 		// Verify hostname resolved
 		var hostnameFound bool
 		for _, ov := range plugin.Spec.OptionValues {
-			if ov.Name == "ui.message" {
+			if ov.Name == optionUIMessage {
 				hostnameFound = true
 				g.Expect(ov.Value).ToNot(BeNil())
 				g.Expect(string(ov.Value.Raw)).To(Equal(`"podinfo-` + remoteClusterName + `.example.com"`))
@@ -109,7 +109,7 @@ func PluginPresetExpressionEvaluation(ctx context.Context, adminClient, remoteCl
 		// Verify org expression resolved
 		var orgFound bool
 		for _, ov := range plugin.Spec.OptionValues {
-			if ov.Name == "ui.backend" {
+			if ov.Name == optionUIBackend {
 				orgFound = true
 				g.Expect(ov.Value).ToNot(BeNil())
 				g.Expect(string(ov.Value.Raw)).To(Equal(`"` + env.TestNamespace + `-service"`))
