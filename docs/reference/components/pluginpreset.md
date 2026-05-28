@@ -281,7 +281,7 @@ spec:
   clusterSelector:
     matchLabels:
       greenhouse.sap/cluster: kind-greenhouse-remote
---
+---
 apiVersion: greenhouse.sap/v1alpha1
 kind: PluginPreset
 metadata:
@@ -302,7 +302,7 @@ spec:
   clusterSelector:
     matchLabels:
       greenhouse.sap/cluster: kind-greenhouse-remote
---
+---
 apiVersion: greenhouse.sap/v1alpha1
 kind: PluginPreset
 metadata:
