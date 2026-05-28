@@ -276,7 +276,10 @@ func (r *PluginPresetReconciler) resolveReferencedPresetValues(
 		return refPreset.Spec.Plugin.OptionValues
 	}
 
-	resolvedRefValues, err := r.resolveExpressionsForPreset(ctx, refPreset, cluster)
+	// Apply cluster-specific overrides to referenced preset first
+	refPresetWithOverrides := applyOverridesToPreset(refPreset, cluster.Name)
+
+	resolvedRefValues, err := r.resolveExpressionsForPreset(ctx, refPresetWithOverrides, cluster)
 	if err != nil {
 		log := ctrl.LoggerFrom(ctx)
 		log.Error(err, "Failed to resolve expressions in referenced PluginPreset, using raw values",
