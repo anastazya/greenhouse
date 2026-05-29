@@ -88,6 +88,8 @@ func startPluginReconciler(name string, mgr ctrl.Manager) error {
 		ExpressionEvaluationEnabled: featureFlags.IsExpressionEvaluationEnabled(),
 		IntegrationEnabled:          featureFlags.IsIntegrationEnabled(),
 		OCIMirroringEnabled:         featureFlags.IsOCIMirroringEnabled(),
+		StoragePath:                 artifactStoragePath,
+		HTTPRetry:                   artifactRetries,
 	}).SetupWithManager(name, mgr)
 }
 
@@ -126,6 +128,6 @@ func startCatalogReconciler(name string, mgr ctrl.Manager) error {
 	return (&catalog.CatalogReconciler{
 		Log:         ctrl.Log.WithName("controllers").WithName("catalogs"),
 		StoragePath: artifactStoragePath,
-		HttpRetry:   artifactRetries,
+		HTTPRetry:   artifactRetries,
 	}).SetupWithManager(name, mgr)
 }
