@@ -495,14 +495,13 @@ func isPluginDefinitionNotFoundError(err error) bool {
 }
 
 // pluginSpecFromPluginPreset returns a PluginSpec based on the given PluginPreset.Spec.Plugin.
-// Fields are mapped one-to-one except for ClusterName
+// This maps all fields that can be copied 1:1 from the PluginPreset's PluginSpec, the given cluster name and the PluginPreset's WaitFor
 func pluginSpecFromPluginPreset(preset *greenhousev1alpha1.PluginPreset, cluster string) greenhousev1alpha1.PluginSpec {
 	return greenhousev1alpha1.PluginSpec{
 		PluginDefinitionRef: preset.Spec.Plugin.PluginDefinitionRef,
 		DisplayName:         preset.Spec.Plugin.DisplayName,
 		OptionValues:        preset.Spec.Plugin.OptionValues,
 		ReleaseNamespace:    preset.Spec.Plugin.ReleaseNamespace,
-		ReleaseName:         preset.Spec.Plugin.ReleaseName,
 		DeletionPolicy:      preset.Spec.Plugin.DeletionPolicy,
 		IgnoreDifferences:   preset.Spec.Plugin.IgnoreDifferences,
 		// Set the cluster name to the name of the cluster. The PluginSpec contained in the PluginPreset does not have a cluster name.
